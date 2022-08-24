@@ -25,6 +25,7 @@ def get_oath():
 
 
     req = requests.post(url=url, headers=headers, data=body)
+    print(f'Oath request {req}')
 
     token = req.json()['access_token']
     return token
@@ -46,32 +47,38 @@ def get_track_info(song, oath_token, artist='', album=''):
         query_string += f' album:{album}'
 
     # Encode query string and type
-    print('q1', query_string)
     query_string = quote_plus(query_string)
-    print('q ', query_string)
     return_type = quote_plus(return_type)
 
     url = f'{endpoint}?q={query_string}&type={return_type}&limit={limit}'
     req = requests.get(url=url, headers=headers)
-    return req.json()['tracks']['items'][0]
+    print(f'Track info request {req}')
+
+    if len(req.json()['tracks']['items']) > 0:
+        return req.json()['tracks']['items'][0]
+    else:return None
 
 def parse_track_info(track_info):
     '''
     Gets useful info out of the JSON that the API search endpoint returns
     '''
-    output_dict = {}
-    output_dict['id'] = track_info['id']
-    output_dict['track_name'] = track_info['name']
-    output_dict['artist'] = track_info['artists'][0]['name'] # keep just the first artist
-    output_dict['album_name'] = track_info['album']['name']
-    output_dict['album_release_date'] = track_info['album']['release_date']
-    output_dict['album_track_num'] = track_info['track_number']
-    output_dict['album_track_placement'] = track_info['track_number']/track_info['album']['total_tracks']
-    output_dict['duration_mins'] = track_info['duration_ms']/1000/60
-    output_dict['explicit'] = track_info['explicit']
-    output_dict['popularity'] = track_info['popularity']
-
-    return output_dict
+    if track_info == None:
+        print('No track info found')
+        return None
+    else:
+        output_dict = {'id':[], 'track_name':[], 'artist':[], 'album_name':[], 'album_release_year':[], 'album_track_num': [], 'album_track_placement': [], 'duration_min':[], 'explicit':[], 'popularity':[]}
+        output_dict['id'].append(track_info['id'])
+        output_dict['track_name'].append(track_info['name'])
+        output_dict['artist'].append(track_info['artists'][0]['name']) # keep just the first artist
+        output_dict['album_name'].append(track_info['album']['name'])
+        output_dict['album_release_year'].append(track_info['album']['release_date'].split('-')[0]) # extract year from date in YYYY-MM-DD format
+        output_dict['album_track_num'].append(track_info['track_number'])
+        output_dict['album_track_placement'].append(track_info['track_number']/track_info['album']['total_tracks'])
+        output_dict['duration_min'].append(track_info['duration_ms']/1000/60)
+        output_dict['explicit'].append(track_info['explicit'])
+        output_dict['popularity'].append(track_info['popularity'])
+        
+        return output_dict
 
 def get_track_audio_features(track_id, oath_token):
     '''
@@ -80,9 +87,10 @@ def get_track_audio_features(track_id, oath_token):
     api_url =  'https://api.spotify.com/v1/audio-features'
 
     headers = {'Content-Type': 'application/json', 'Authorization': f'Bearer {oath_token}'}
-    print(track_id)
-    audio_feature_dict = requests.get(f'{api_url}/{track_id}', headers=headers).json()
-    print(audio_feature_dict)
+    req = requests.get(f'{api_url}/{track_id}', headers=headers)
+    print(f'Audio feature request {req}')
+    audio_feature_dict = req.json()
+    audio_feature_dict = {key:[value] for key, value in audio_feature_dict.items()}
 
 
     # delete unwanted keys
@@ -98,10 +106,8 @@ def get_track_info_features(song, oath_token, artist='', album=''):
     '''
     Gets the track information and audio features for a given song
     '''
-    token = get_oath()
-    track_info = get_track_info(song, oath_token, artist, album)
-    audio_features = get_track_audio_features(track_info['id'], token)
-
+    track_info = parse_track_info(get_track_info(song, oath_token, artist, album))
+    audio_features = get_track_audio_features(track_info['id'][0], oath_token) # recall track_info values are lists
     track_info_features = audio_features | track_info
 
     return track_info_features
@@ -113,11 +119,12 @@ def classify_songs(songs):
     Returns a dictionary with clusters or 'Outliers' as keys and songs as values
     '''
     numerical = ['album_track_num', 'album_track_placement', 'album_release_year', 'duration_min', 'popularity', 'danceability', 'energy', 'key', 'loudness', 'speechiness', 'acousticness', 'instrumentalness', 'liveness', 'valence', 'tempo', 'time_signature']
+
     songs = pd.DataFrame.from_dict(songs)
 
     # Load Models
     pipeline = pickle.load(open('classification_pipeline.sav', 'rb'))
-    trained_kmeans = pickle.load(open('classification_pipeline.sav', 'rb'))
+    trained_kmeans = pickle.load(open('trained_kmeans.sav', 'rb'))
     test_log_distances = pickle.load(open('test_log_distances.sav', 'rb'))
 
     cluster_dict = {1:[], 2:[], 3:[], 'Outliers':[]}
@@ -125,8 +132,6 @@ def classify_songs(songs):
 
     # Predict_clusters
     y_pred = pipeline.predict(song_audio_features)
-
-    print(y_pred)
 
     # Find Z-scores
     # make an array of assigned cluster centers
@@ -137,25 +142,35 @@ def classify_songs(songs):
     new_log_distances = np.log(1+distances)
     log_distances = np.concatenate([test_log_distances, new_log_distances])
     distance_zscore = stats.zscore(log_distances)
-
+    new_zscores = distance_zscore[-len(new_log_distances):]
     for i, song in enumerate(songs.values):
 
-        if distance_zscore[i] > 3:
-            cluster_dict['Outliers'].append(song[1:4])
+        if np.abs(new_zscores[i]) > 2:
+            cluster_dict['Outliers'].append(song[13:16])
         else:
-            cluster_dict[y_pred[i]].append(song[1:4])
+            cluster_dict[y_pred[i]].append(song[13:16])
     return cluster_dict
 
-def retrieve_and_classify(song, oath_token, artist='', album=''):
-    track_info_features = get_track_info_features(song, oath_token, artist='', album='')
+def retrieve_and_classify(song, artist='', album=''):
+    oath_token = get_oath()
+    track_info_features = get_track_info_features(song, oath_token, artist, album)
 
     cluster_dict = classify_songs(track_info_features)
-
+    print(cluster_dict.keys())
     for key in cluster_dict.keys():
-        if len(cluster_dict[key] > 0):
-            track_name =  cluster_dict[key][0]
-            artist =  cluster_dict[key][1]
-            album_name = cluster_dict[key][2]
+        if len(cluster_dict[key]) > 0:
+            for song in cluster_dict[key]:
+                track_name =  song[0]
+                artist =  song[1]
+                album_name = song[2]
 
-            if key == 'Outliers':
-                print(f'{track_name} by {artist} off of {album_name} is an outlier')
+                if key == 'Outliers':
+                    print(f'Not sure why you like {track_name} by {artist} off of {album_name}.')
+                elif key == 1:
+                    print(f'You may like {track_name} by {artist} off of {album_name} because it is dark, aggressive, or heavy.')
+                elif key == 2:
+                    print(f'You may like {track_name} by {artist} off of {album_name} because it is light, atmospheric, or classical.')
+                elif key == 2:
+                    print(f'You may like {track_name} by {artist} off of {album_name} because it is melodic or upbeat.')
+
+retrieve_and_classify('Down with the Sun', artist='Insomnium')
