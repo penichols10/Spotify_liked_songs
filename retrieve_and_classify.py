@@ -169,8 +169,8 @@ def retrieve_and_classify(song, artist='', album=''):
                 elif key == 1:
                     print(f'You may like {track_name} by {artist} off of {album_name} because it is dark, aggressive, or heavy.')
                 elif key == 2:
-                    print(f'You may like {track_name} by {artist} off of {album_name} because it is light, atmospheric, or classical.')
-                elif key == 2:
                     print(f'You may like {track_name} by {artist} off of {album_name} because it is melodic or upbeat.')
+                elif key == 2:
+                    print(f'You may like {track_name} by {artist} off of {album_name} because it is light, atmospheric, or classical.')
 
 retrieve_and_classify('Down with the Sun', artist='Insomnium')
