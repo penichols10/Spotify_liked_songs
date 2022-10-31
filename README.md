@@ -3,6 +3,7 @@ In this project, I made a tool to compare songs on Spotify to songs that I have 
 
 The tool takes a new song, looks it up on Spotify using Spotify's API, retrieves basic information and audio features, classifies it using the support vector machine. The distance between the song and the centroid of the cluster associated with the class to which the song was assigned is calculated. If the distance is beyond a threshold, the song is considered an outlier. A message is printed about its cluster assignment.
 
+NOTE: to the extent this remains a CLI tool, I've provided example inputs to keep my secret information secret. Creating Spotify apps is free, so feel free to put your own client ID and client secret in the retrieve_new_tracks.py file to confirm the app works.
 
 
 # Contents
@@ -22,4 +23,4 @@ The repository contains the following:
 * iqr_based_thresholds.sav - stores distances from cluster centers, beyond which a song is considerd an outlier
 
 # To Do
-In the future, I may created some web front end for this, but that is a long term goal.
+In the future, I may created some web front end for this.
